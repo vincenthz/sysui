@@ -103,7 +103,7 @@ main = do
                     case lookup bat batWidgets of
                         Nothing        -> return ()
                         Just (lblWidget, lb) -> do
-                            labelSetText lblWidget ("bat: " ++ txt)
+                            labelSetText lblWidget (bat ++ ": " ++ txt)
                             if (not (v < 0.0))
                                 then set lb [ levelBarValue := v ]
                                 else return ()
