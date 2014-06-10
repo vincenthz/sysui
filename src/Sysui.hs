@@ -40,6 +40,52 @@ getCurrentFormattedTime tz = do
         fmt = "YYYY-MM-DD H:MI:S" :: String
     return (localTimePrint fmt localMy, localTimePrint fmt localPdt)
 
+createBatteryWidget box bat = do
+    h   <- hBoxNew False 20
+    lbl <- labelNew (Just "")
+    lb  <- levelBarNew
+
+    set lb [ levelBarMinValue := 0.0, levelBarMaxValue := 100.0 ]
+
+    boxPackStart h lbl PackNatural 2 
+    boxPackStart h lb PackNatural 2
+    boxPackStart box h PackNatural 2
+    return (bat, (lbl, lb))
+
+updateBatteryWidget wl bat = do
+    st <- getBatteryStatus bat
+    let status = case st of
+                    BSFull -> "Full"
+                    BSDischarging -> "Discharging"
+                    BSCharging -> "Charging"
+                    _ -> "Error"
+    case lookup bat wl of
+        Nothing             -> return ()
+        Just (lblWidget, lb) -> do
+            labelSetText lblWidget (bat ++ ": " ++ status)
+            case st of
+                BSFull -> set lb [ levelBarValue := 100.0 ]
+                _      -> set lb [ levelBarValue := 25.0 ]
+
+createACWidget box ac = do
+    h   <- hBoxNew False 20
+    lbl <- labelNew (Just "")
+    lb  <- levelBarNew
+
+    set lb [ levelBarMinValue := 0.0, levelBarMaxValue := 100.0 ]
+
+    boxPackStart h lbl PackNatural 2 
+    boxPackStart h lb PackNatural 2
+    boxPackStart box h PackNatural 2
+    return (ac, (lbl, lb))
+
+updateACWidget wl ac = do
+    st <- isACOnline ac
+    let status = if st then "online" else "offline"
+    case lookup ac wl of
+        Nothing             -> return ()
+        Just (lblWidget, _) -> labelSetText lblWidget (ac ++ ": " ++ status)
+
 main = do
     ctrRef <- newIORef 0
     _    <- initGUI
@@ -76,39 +122,26 @@ main = do
                         labelSetText lblPdt ("PDT time: " ++ pst)
         return (clockBox, setter)
 
-    batteryUpdate <- withSection box "Battery" $ do
-        batteryBox <- vBoxNew False 15
 
-        batWidgets <- enumerateBatteries >>= mapM (\bat -> do
-                        h   <- hBoxNew False 20
-                        lbl <- labelNew (Just "")
-                        lb  <- levelBarNew
+    powerUpdate <- withSection box "Power Supply" $ do
+        powerBox <- vBoxNew False 15
 
-                        set lb [ levelBarMinValue := 0.0, levelBarMaxValue := 100.0 ]
+        (PowerSupply batList acList _) <- enumerateBatteries
 
-                        boxPackStart h lbl PackNatural 2
-                        boxPackStart h lb PackNatural 2
-                        boxPackStart batteryBox h PackNatural 2
-                        return (bat, (lbl, lb)))
+        batteriesUpdate <- withSection powerBox "Batteries" $ do
+            batteryBox <- vBoxNew False 15
+            batWidgets <- mapM (createBatteryWidget batteryBox) batList
+            let updateBatteries = forM_ batList (updateBatteryWidget batWidgets)
+            return (batteryBox, updateBatteries)
+        acUpdate <- withSection powerBox "Wires" $ do
+            acBox <- vBoxNew False 15
+            acWidgets <- mapM (createACWidget acBox) acList
+            let updateACs = forM_ acList (updateACWidget acWidgets)
+            return (acBox, updateACs)
 
-        let update = do
-                batNames <- enumerateBatteries
-                forM_ batNames $ \bat -> do
-                    info <- getBatteryInfo bat
-                    let (txt, v) = case info of
-                                Just (Left bv)  -> (if bv == "1" then "ONLINE" else "OFFLINE", -1)
-                                Just (Right p) -> (show (percent p) ++ "%", percent p)
-                                Nothing        -> ("ERROR", -1)
-
-                    case lookup bat batWidgets of
-                        Nothing        -> return ()
-                        Just (lblWidget, lb) -> do
-                            labelSetText lblWidget (bat ++ ": " ++ txt)
-                            if (not (v < 0.0))
-                                then set lb [ levelBarValue := v ]
-                                else return ()
-        update
-        return (batteryBox, update)
+        let updatePower = sequence_ [batteriesUpdate, acUpdate]
+        updatePower
+        return (powerBox, updatePower)
 
     withSection box "Calendar" $ do
         c <- calendarNew
@@ -116,7 +149,7 @@ main = do
 
     flip timeoutAdd timeUnit $ do
         ctr <- readIORef ctrRef
-        when ((ctr `mod` batteryUpdateTime) == 0) batteryUpdate
+        when ((ctr `mod` batteryUpdateTime) == 0) powerUpdate
 
         -- update date every now and then
         clockUpdate
