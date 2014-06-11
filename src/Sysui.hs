@@ -7,14 +7,7 @@ import Control.Monad
 import Control.Monad.Trans
 import Data.Hourglass
 import System.Hourglass
-import Data.Either
-import Data.Maybe
-import System.FilePath ((</>))
-import System.Directory
-import System.Posix.IO (stdInput, fdReadBuf)
 import Graphics.UI.Gtk
-import qualified Data.ByteString.Internal as B (createAndTrim)
-import Data.ByteString.UTF8 (toString)
 
 import Battery
 
@@ -53,19 +46,31 @@ createBatteryWidget box bat = do
     return (bat, (lbl, lb))
 
 updateBatteryWidget wl bat = do
-    st <- getBatteryStatus bat
-    let status = case st of
-                    BSFull -> "Full"
-                    BSDischarging -> "Discharging"
-                    BSCharging -> "Charging"
-                    _ -> "Error"
+    infos <- getBatteryInfos bat
+    let txt = case getStatus_ infos of
+                    BSFull        -> "Full"
+                    BSDischarging -> "Discharging (" ++ (showCapacity infos) ++ " | " ++ (showDuration infos) ++ " left )"
+                    BSCharging    -> "Charging (" ++ (showCapacity infos) ++ ")"
+                    _             -> "Error"
     case lookup bat wl of
         Nothing             -> return ()
         Just (lblWidget, lb) -> do
-            labelSetText lblWidget (bat ++ ": " ++ status)
-            case st of
-                BSFull -> set lb [ levelBarValue := 100.0 ]
-                _      -> set lb [ levelBarValue := 25.0 ]
+            labelSetText lblWidget (bat ++ ": " ++ txt)
+            case getStatus_ infos of
+                BSFull        -> set lb [ levelBarValue := 100.0 ]
+                BSCharging    -> set lb [ levelBarValue := (fromIntegral $ maybe 0 id $ getCapacity_ infos) ]
+                BSDischarging -> set lb [ levelBarValue := (fromIntegral $ maybe 0 id $ getCapacity_ infos) ]
+                _             -> set lb [ levelBarValue := 0.0 ]
+    where
+        showDuration :: BatteryInfos -> String
+        showDuration bi =
+            let showDuration_ d = (show $ durationHours d) ++ (show $ durationMinutes d) ++ (show $ durationSeconds d)
+            in  maybe "N/A" showDuration_ $ getDuration_ bi
+
+        showCapacity :: BatteryInfos -> String
+        showCapacity bi =
+            let showCapacity_ c = (show c) ++ "%"
+            in  maybe "N/A" showCapacity_ $ getCapacity_ bi
 
 createACWidget box ac = do
     h   <- hBoxNew False 20
@@ -81,14 +86,14 @@ createACWidget box ac = do
 
 updateACWidget wl ac = do
     st <- isACOnline ac
-    let status = if st then "online" else "offline"
+    let status = if st then "ONLINE" else "OFFLINE"
     case lookup ac wl of
         Nothing             -> return ()
         Just (lblWidget, _) -> labelSetText lblWidget (ac ++ ": " ++ status)
 
 main = do
     ctrRef <- newIORef 0
-    _    <- initGUI
+    _ <- initGUI
 
     tz <- timezoneCurrent
     Just disp <- displayGetDefault
@@ -126,7 +131,7 @@ main = do
     powerUpdate <- withSection box "Power Supply" $ do
         powerBox <- vBoxNew False 15
 
-        (PowerSupply batList acList _) <- enumerateBatteries
+        (PowerSupplies batList acList _) <- enumerateBatteries
 
         batteriesUpdate <- withSection powerBox "Batteries" $ do
             batteryBox <- vBoxNew False 15
@@ -139,6 +144,7 @@ main = do
             let updateACs = forM_ acList (updateACWidget acWidgets)
             return (acBox, updateACs)
 
+        -- TODO: check if a battery has been added or deleted and create/delete the widget in case
         let updatePower = sequence_ [batteriesUpdate, acUpdate]
         updatePower
         return (powerBox, updatePower)
