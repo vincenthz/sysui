@@ -27,6 +27,7 @@ Executable           sysui
                    , mtl
                    , directory
                    , filepath
+                   , process
                    , hourglass >= 0.2.1
                    , gtk3 >= 0.12
 
