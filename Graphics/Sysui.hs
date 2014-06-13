@@ -62,14 +62,15 @@ defaultSysuiConfig =
 createBatteryWidget box bat = do
     h   <- hBoxNew False 20
     lbl <- labelNew (Just "")
-    lb  <- levelBarNew
+    levelBar <- levelBarNew
 
-    set lb [ levelBarMinValue := 0.0, levelBarMaxValue := 100.0 ]
+    widgetSetSizeRequest levelBar 100 (-1)
+    set levelBar [ levelBarMinValue := 0.0, levelBarMaxValue := 100.0 ]
 
-    boxPackStart h lbl PackNatural 2 
-    boxPackStart h lb PackNatural 2
+    boxPackStart h lbl PackNatural 2
+    boxPackStart h levelBar PackNatural 2
     boxPackStart box h PackNatural 2
-    return (bat, (lbl, lb))
+    return (bat, (lbl, levelBar))
 
 updateBatteryWidget wl bat = do
     infos <- getBatteryInfos bat
@@ -82,9 +83,9 @@ updateBatteryWidget wl bat = do
                         _             -> ( "Error", Nothing )
     case lookup bat wl of
         Nothing             -> return ()
-        Just (lblWidget, lb) -> do
+        Just (lblWidget, levelBar) -> do
             labelSetText lblWidget ((takeDeviceName bat) ++ ": " ++ txt)
-            set lb [ levelBarValue := (maybe 0.0 fromIntegral lvl) ]
+            set levelBar [ levelBarValue := (maybe 0 fromIntegral lvl) ]
     where
         showDuration :: BatteryInfos -> String
         showDuration bi =
@@ -95,24 +96,6 @@ updateBatteryWidget wl bat = do
         showCapacity bi =
             let showCapacity_ c = (show c) ++ "%"
             in  maybe "N/A" showCapacity_ $ getCapacity_ bi
-
--- AC
-
-createACWidget box ac = do
-    h   <- hBoxNew False 20
-    lbl <- labelNew (Just "")
-
-
-    boxPackStart h lbl PackNatural 2 
-    boxPackStart box h PackNatural 2
-    return (ac, lbl)
-
-updateACWidget wl ac = do
-    st <- isACOnline ac
-    let status = if st then "ONLINE" else "OFFLINE"
-    case lookup ac wl of
-        Nothing        -> return ()
-        Just lblWidget -> labelSetText lblWidget ((takeDeviceName ac) ++ ": " ++ status)
 
 -- Clock
 
@@ -140,27 +123,33 @@ withSection box name f = do
     return a
 
 createPowerSupplyWidget :: BoxClass b => b -> SysuiConfig -> IO (IO ())
-createPowerSupplyWidget box _ =
-    withSection box "Power Supply" $ do
-        powerBox <- vBoxNew True 15
+createPowerSupplyWidget box _ = do
+    powerBox <- labelNew (Just "Power Supply")
+    boxPackStart box powerBox PackNatural 2
 
-        (PowerSupplies batList acList _) <- getPowerSupplies
+    (PowerSupplies batList acList _) <- getPowerSupplies
 
-        batteriesUpdate <- withSection powerBox "Batteries" $ do
-            batteryBox <- vBoxNew False 15
-            batWidgets <- mapM (createBatteryWidget batteryBox) batList
-            let updateBatteries = forM_ batList (updateBatteryWidget batWidgets)
-            return (batteryBox, updateBatteries)
-        acUpdate <- withSection powerBox "Wires" $ do
-            acBox <- vBoxNew False 15
-            acWidgets <- mapM (createACWidget acBox) acList
-            let updateACs = forM_ acList (updateACWidget acWidgets)
-            return (acBox, updateACs)
+    batWidgets <- mapM (createBatteryWidget box) batList
 
-        -- TODO: check if a battery has been added or deleted and create/delete the widget in case
-        let updatePower = sequence_ [batteriesUpdate, acUpdate]
-        updatePower
-        return (powerBox, updatePower)
+    let updateBatteries = forM_ batList (updateBatteryWidget batWidgets)
+    let powerACUpdate = updatePowerSupplyLabel powerBox acList
+
+    let powerSupplyUpdate = sequence_ [updateBatteries, powerACUpdate]
+    powerSupplyUpdate
+    return powerSupplyUpdate
+    where
+        oneACisOnline :: [FilePath] -> IO Bool
+        oneACisOnline [] = return False
+        oneACisOnline (ac:xs) = isACOnline ac >>= \st -> if st then return st else oneACisOnline xs
+
+        updatePowerSupplyLabel :: LabelClass b => b -> [FilePath] -> IO ()
+        updatePowerSupplyLabel labelBox [] = labelSetText labelBox "Power Supply"
+        updatePowerSupplyLabel labelBox acList = do
+            st <-oneACisOnline acList
+            if st
+                then labelSetText labelBox "Power Supply: ONLINE"
+                else labelSetText labelBox "Power Supply: OFFLINE"
+
 
 createTimeWidget :: BoxClass b => b -> SysuiConfig -> IO (IO ())
 createTimeWidget box config
