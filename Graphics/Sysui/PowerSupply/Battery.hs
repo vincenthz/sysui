@@ -1,52 +1,11 @@
-module Battery
-    ( -- * PowerSupplies
-      PowerSupplies(..)
-    , enumerateBatteries
-      -- * Battery informations
-    , BatteryInfos(..)
+module Graphics.Sysui.PowerSupply.Battery
+    ( BatteryInfos(..)
     , BatteryStatus(..)
     , getBatteryInfos
-      -- * AC informations
-    , isACOnline
     ) where
 
-import System.Directory
-import System.FilePath
-
-import System.IO.Unsafe
+import System.FilePath (FilePath, (</>))
 import Data.Hourglass
-
--- Linux power supply common path:
-powerSupplyDir = "/sys/class/power_supply"
-
--- | Lists of Power Supplies sorted by type
-data PowerSupplies = PowerSupplies
-    { batteries :: [FilePath]
-    , acwires   :: [FilePath]
-    , unknowns  :: [FilePath] }
-    deriving (Show)
-
-enumerateBatteries :: IO PowerSupplies
-enumerateBatteries = do
-    dirs <- enumerateBatteries_
-    let (bats, acs, others) = foldr selectBattery ([],[],[]) dirs
-    return $ PowerSupplies bats acs others
-    where
-        selectBattery :: FilePath
-                      -> ([FilePath], [FilePath], [FilePath])
-                      -> ([FilePath], [FilePath], [FilePath])
-        selectBattery d (bl, acl, ol) = do
-            let t = unsafePerformIO $ readFile (powerSupplyDir </> d </> "type")
-            case t of
-                "Mains\n"   -> (bl, d:acl, ol)
-                "Battery\n" -> (d:bl, acl, ol)
-                _           -> (bl, acl, d:ol)
-        enumerateBatteries_ = filter (not . flip elem [".",".."]) `fmap` getDirectoryContents powerSupplyDir
-
--- ###########################################################################
--- Extract information from power supplies depending on their type
-
--- ## Get Battery informations
 
 data BatteryStatus = BSFull
                    | BSDischarging
@@ -64,7 +23,7 @@ data BatteryInfos = BatteryInfos
 -- | return battery informations
 getBatteryInfos :: FilePath -> IO BatteryInfos
 getBatteryInfos bat = do
-    uevent <- (foldl parseAcc [] . lines) `fmap` (readFile $ powerSupplyDir </> bat </> "uevent")
+    uevent <- (foldl parseAcc [] . lines) `fmap` (readFile $ bat </> "uevent")
     return $ BatteryInfos
                 (getBatteryPresent uevent)
                 (getBatteryStatus uevent)
@@ -106,8 +65,3 @@ getBatteryPresent l =
     case lookup "PRESENT" l of
         Just "1" -> True
         _        -> False
-
--- ## get AC informations
-
-isACOnline :: FilePath -> IO Bool
-isACOnline ac = readFile (powerSupplyDir </> ac </> "online") >>= \online -> return $ online == "1\n"

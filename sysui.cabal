@@ -14,11 +14,14 @@ Homepage:            http://github.com/vincenthz/sysui
 Cabal-Version:       >=1.10
 data-files:          README.md
 
-Executable           sysui
-  Main-Is:           Sysui.hs
-  ghc-options:       -Wall -fno-warn-missing-signatures -threaded
-  Hs-Source-Dirs:    src
+library
+  exposed-modules:   Graphics.Sysui
+  other-modules:     Graphics.Sysui.PowerSupply
+                   , Graphics.Sysui.PowerSupply.Battery
+                   , Graphics.Sysui.PowerSupply.AC
   default-language:  Haskell2010
+  Hs-Source-Dirs:    .
+  ghc-options:       -Wall -fno-warn-missing-signatures -threaded
   Build-depends:     base >= 4 && < 5
                    , bytestring
                    , utf8-string
@@ -30,6 +33,16 @@ Executable           sysui
                    , process
                    , hourglass >= 0.2.1
                    , gtk3 >= 0.12
+
+Executable           sysui
+  Main-Is:           Sysui.hs
+  ghc-options:       -Wall -fno-warn-missing-signatures -threaded
+  Hs-Source-Dirs:    src
+  default-language:  Haskell2010
+  Build-depends:     base >= 4 && < 5
+                   , sysui
+                   , process
+                   , hourglass >= 0.2.1
 
 source-repository head
   type: git
